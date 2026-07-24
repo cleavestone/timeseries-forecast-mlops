@@ -1,0 +1,39 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+*.egg-info/
+
+# Data (DVC-tracked, not git-tracked)
+data/raw/*
+data/processed/*
+data/reference/*
+!data/raw/.gitkeep
+!data/processed/.gitkeep
+!data/reference/.gitkeep
+
+# DVC
+.dvc/cache
+.dvc/tmp
+
+# Env / secrets
+.env
+*.env.local
+
+# MLflow local artifact store (if any leaks locally)
+mlruns/
+mlartifacts/
+
+# Docker
+*.log
+
+# OS/editor
+.DS_Store
+.vscode/
+*.swp
+
+# Jupyter
+.ipynb_checkpoints/
+notebooks/*.ipynb_checkpoints/.venv/
