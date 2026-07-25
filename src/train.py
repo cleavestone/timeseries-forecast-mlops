@@ -1,10 +1,10 @@
 """
-Train and evaluate the seasonal naive baseline.
-Prediction(t) = actual(t - 7), i.e. the Sales_lag_7 feature directly.
-
-This is the floor every subsequent model must beat.
+Train and evaluate forecasting models.
+Usage: uv run python src/train.py --model seasonal_naive
+       uv run python src/train.py --model lightgbm
 """
 
+import argparse
 import sys
 from pathlib import Path
 
@@ -14,21 +14,22 @@ import pandas as pd
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from features.build_features import load_params, build_features
+from models.lgbm_model import train_lgbm, predict_lgbm, get_feature_columns
 
 
 MLFLOW_TRACKING_URI = "http://localhost:5001"
 EXPERIMENT_NAME = "rossmann-forecasting"
 
 
-def wmape(y_true: np.ndarray, y_pred: np.ndarray) -> float:
+def wmape(y_true, y_pred):
     return np.sum(np.abs(y_true - y_pred)) / np.sum(np.abs(y_true))
 
 
-def rmse(y_true: np.ndarray, y_pred: np.ndarray) -> float:
+def rmse(y_true, y_pred):
     return np.sqrt(np.mean((y_true - y_pred) ** 2))
 
 
-def mae(y_true: np.ndarray, y_pred: np.ndarray) -> float:
+def mae(y_true, y_pred):
     return np.mean(np.abs(y_true - y_pred))
 
 
@@ -40,19 +41,50 @@ def split_data(df: pd.DataFrame, params: dict, date_col: str = "Date"):
     return train, val, test
 
 
-def evaluate_predictions(y_true: pd.Series, y_pred: pd.Series) -> dict:
-    mask = y_pred.notnull() & y_true.notnull()
-    y_true, y_pred = y_true[mask].values, y_pred[mask].values
+def evaluate_predictions(y_true: pd.Series, y_pred) -> dict:
+    y_true = np.asarray(y_true)
+    y_pred = np.asarray(y_pred)
+    mask = ~np.isnan(y_pred) & ~np.isnan(y_true)
+    y_true, y_pred = y_true[mask], y_pred[mask]
     return {
         "wmape": wmape(y_true, y_pred),
         "rmse": rmse(y_true, y_pred),
         "mae": mae(y_true, y_pred),
         "n_rows_evaluated": int(mask.sum()),
-        "n_rows_dropped_no_lag": int((~mask).sum()),
+        "n_rows_dropped": int((~mask).sum()),
     }
 
 
+def run_seasonal_naive(train, val, test, target_col):
+    val_metrics = evaluate_predictions(val[target_col], val[f"{target_col}_lag_7"])
+    test_metrics = evaluate_predictions(test[target_col], test[f"{target_col}_lag_7"])
+    params_to_log = {"model_type": "seasonal_naive", "lag_used": 7}
+    return params_to_log, val_metrics, test_metrics, None
+
+
+def run_lightgbm(train, val, test, target_col):
+    feature_cols = get_feature_columns(train, target_col)
+    model = train_lgbm(train, val, feature_cols, target_col="Sales_transformed")
+
+    val_preds = predict_lgbm(model, val, feature_cols)
+    test_preds = predict_lgbm(model, test, feature_cols)
+
+    val_metrics = evaluate_predictions(val[target_col], val_preds)
+    test_metrics = evaluate_predictions(test[target_col], test_preds)
+
+    params_to_log = {
+        "model_type": "lightgbm",
+        "num_features": len(feature_cols),
+        "best_iteration": model.best_iteration,
+    }
+    return params_to_log, val_metrics, test_metrics, model
+
+
 def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--model", choices=["seasonal_naive", "lightgbm"], required=True)
+    args = parser.parse_args()
+
     params = load_params("params.yaml")
     target_col = params["train"]["target_col"]
 
@@ -61,29 +93,31 @@ def main():
 
     df = build_features(train_raw, store_raw, params, filter_open_only=True)
     train, val, test = split_data(df, params)
-
     print(f"Train rows: {len(train)}, Val rows: {len(val)}, Test rows: {len(test)}")
 
     mlflow.set_tracking_uri(MLFLOW_TRACKING_URI)
     mlflow.set_experiment(EXPERIMENT_NAME)
 
-    with mlflow.start_run(run_name="seasonal_naive_baseline"):
+    runners = {
+        "seasonal_naive": run_seasonal_naive,
+        "lightgbm": run_lightgbm,
+    }
+
+    with mlflow.start_run(run_name=args.model):
+        model_params, val_metrics, test_metrics, model = runners[args.model](train, val, test, target_col)
+
+        mlflow.log_params(model_params)
         mlflow.log_params({
-            "model_type": "seasonal_naive",
-            "lag_used": 7,
             "train_start": params["split"]["train_start"],
             "train_end": params["split"]["train_end"],
-            "val_start": params["split"]["val_start"],
-            "val_end": params["split"]["val_end"],
         })
-
-        val_metrics = evaluate_predictions(val[target_col], val[f"{target_col}_lag_7"])
-        test_metrics = evaluate_predictions(test[target_col], test[f"{target_col}_lag_7"])
-
         for k, v in val_metrics.items():
             mlflow.log_metric(f"val_{k}", v)
         for k, v in test_metrics.items():
             mlflow.log_metric(f"test_{k}", v)
+
+        if model is not None:
+            mlflow.lightgbm.log_model(model, artifact_path="model")
 
         print("Validation metrics:", val_metrics)
         print("Test metrics:", test_metrics)
