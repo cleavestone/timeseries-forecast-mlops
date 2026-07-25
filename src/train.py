@@ -2,6 +2,7 @@
 Train and evaluate forecasting models.
 Usage: uv run python src/train.py --model seasonal_naive
        uv run python src/train.py --model lightgbm
+       uv run python src/train.py --model lightgbm_tuned
 """
 
 import argparse
@@ -15,6 +16,7 @@ import pandas as pd
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from features.build_features import load_params, build_features
 from models.lgbm_model import train_lgbm, predict_lgbm, get_feature_columns
+from models.tuning import run_tuning_study
 
 
 MLFLOW_TRACKING_URI = "http://localhost:5001"
@@ -80,9 +82,33 @@ def run_lightgbm(train, val, test, target_col):
     return params_to_log, val_metrics, test_metrics, model
 
 
+def run_lightgbm_tuned(train, val, test, target_col, n_trials=25):
+    study = run_tuning_study(train, val, target_col=target_col, n_trials=n_trials)
+
+    best_params = study.best_params
+    feature_cols = get_feature_columns(train, target_col)
+    model = train_lgbm(train, val, feature_cols, target_col="Sales_transformed", params=best_params)
+
+    val_preds = predict_lgbm(model, val, feature_cols)
+    test_preds = predict_lgbm(model, test, feature_cols)
+
+    val_metrics = evaluate_predictions(val[target_col], val_preds)
+    test_metrics = evaluate_predictions(test[target_col], test_preds)
+
+    params_to_log = {
+        "model_type": "lightgbm_tuned",
+        "n_trials": n_trials,
+        "num_features": len(feature_cols),
+        "best_iteration": model.best_iteration,
+        **{f"best_{k}": v for k, v in best_params.items()},
+    }
+    return params_to_log, val_metrics, test_metrics, model
+
+
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--model", choices=["seasonal_naive", "lightgbm"], required=True)
+    parser.add_argument("--model", choices=["seasonal_naive", "lightgbm", "lightgbm_tuned"], required=True)
+    parser.add_argument("--n-trials", type=int, default=25, help="Number of Optuna trials (lightgbm_tuned only)")
     args = parser.parse_args()
 
     params = load_params("params.yaml")
@@ -98,13 +124,15 @@ def main():
     mlflow.set_tracking_uri(MLFLOW_TRACKING_URI)
     mlflow.set_experiment(EXPERIMENT_NAME)
 
-    runners = {
-        "seasonal_naive": run_seasonal_naive,
-        "lightgbm": run_lightgbm,
-    }
-
     with mlflow.start_run(run_name=args.model):
-        model_params, val_metrics, test_metrics, model = runners[args.model](train, val, test, target_col)
+        if args.model == "seasonal_naive":
+            model_params, val_metrics, test_metrics, model = run_seasonal_naive(train, val, test, target_col)
+        elif args.model == "lightgbm":
+            model_params, val_metrics, test_metrics, model = run_lightgbm(train, val, test, target_col)
+        elif args.model == "lightgbm_tuned":
+            model_params, val_metrics, test_metrics, model = run_lightgbm_tuned(
+                train, val, test, target_col, n_trials=args.n_trials
+            )
 
         mlflow.log_params(model_params)
         mlflow.log_params({
