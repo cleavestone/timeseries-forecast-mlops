@@ -1,0 +1,25 @@
+split:
+  train_start: "2013-01-01"
+  train_end: "2015-04-30"
+  val_start: "2015-05-01"
+  val_end: "2015-06-15"
+  test_start: "2015-06-16"
+  test_end: "2015-07-31"
+
+features:
+  lags: [1, 7, 14, 21, 28]
+  rolling_windows: [7, 28]
+  rolling_stats: ["mean", "std"]
+  target_transform: "log1p"   # inverted with expm1 at inference time
+
+  competition_distance_sentinel: -1
+  competition_since_sentinel: -1
+  promo2_since_sentinel: -1
+
+train:
+  target_col: "Sales"
+  id_cols: ["Store", "Date"]
+
+evaluation:
+  primary_metric: "wmape"
+  secondary_metrics: ["rmse", "mae"]
