@@ -3,6 +3,7 @@ Train and evaluate forecasting models.
 Usage: uv run python src/train.py --model seasonal_naive
        uv run python src/train.py --model lightgbm
        uv run python src/train.py --model lightgbm_tuned
+       uv run python src/train.py --model nbeats
 """
 
 import argparse
@@ -17,6 +18,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from features.build_features import load_params, build_features
 from models.lgbm_model import train_lgbm, predict_lgbm, get_feature_columns
 from models.tuning import run_tuning_study
+from models.nbeats_model import prepare_long_format, train_nbeats, predict_nbeats
 
 
 MLFLOW_TRACKING_URI = "http://localhost:5001"
@@ -105,9 +107,60 @@ def run_lightgbm_tuned(train, val, test, target_col, n_trials=25):
     return params_to_log, val_metrics, test_metrics, model
 
 
+def run_nbeats(train_raw, val, test, target_col, params):
+    """
+    N-BEATS operates on raw long-format data, not the engineered feature table.
+    train_raw here is the ORIGINAL raw dataframe (before build_features), filtered
+    internally to the train period + Open==1.
+
+    Note: this only forecasts the val horizon from train_end. Evaluating on the
+    test period would require a second forecast from a later origin (rolling-origin
+    evaluation) — out of scope here, documented as a deliberate limitation.
+    """
+    s = params["split"]
+    train_period = train_raw[
+        (train_raw["Date"] >= s["train_start"]) & (train_raw["Date"] <= s["train_end"])
+    ]
+    long_train = prepare_long_format(train_period)
+
+    horizon = (pd.Timestamp(s["val_end"]) - pd.Timestamp(s["val_start"])).days + 1
+
+    nf = train_nbeats(long_train, horizon=horizon, max_steps=300)
+    preds = predict_nbeats(nf)
+
+    preds["unique_id"] = preds["unique_id"].astype(int)
+    preds = preds.rename(columns={"unique_id": "Store", "ds": "Date", "NBEATS": "y_pred"})
+
+    val_eval = val[["Store", "Date", target_col]].merge(preds, on=["Store", "Date"], how="left")
+    val_metrics = evaluate_predictions(val_eval[target_col], val_eval["y_pred"])
+
+    # No test-period evaluation for this model — see docstring. Use NaN placeholders
+    # (not None/strings) so downstream mlflow.log_metric calls don't break.
+    test_metrics = {
+        "wmape": float("nan"),
+        "rmse": float("nan"),
+        "mae": float("nan"),
+        "n_rows_evaluated": 0,
+        "n_rows_dropped": 0,
+    }
+
+    params_to_log = {
+        "model_type": "nbeats",
+        "horizon": horizon,
+        "input_size": horizon * 4,
+        "max_steps": 300,
+        "test_eval_note": "not evaluated - single-horizon forecast from train_end only",
+    }
+    return params_to_log, val_metrics, test_metrics, None
+
+
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--model", choices=["seasonal_naive", "lightgbm", "lightgbm_tuned"], required=True)
+    parser.add_argument(
+        "--model",
+        choices=["seasonal_naive", "lightgbm", "lightgbm_tuned", "nbeats"],
+        required=True,
+    )
     parser.add_argument("--n-trials", type=int, default=25, help="Number of Optuna trials (lightgbm_tuned only)")
     args = parser.parse_args()
 
@@ -133,6 +186,8 @@ def main():
             model_params, val_metrics, test_metrics, model = run_lightgbm_tuned(
                 train, val, test, target_col, n_trials=args.n_trials
             )
+        elif args.model == "nbeats":
+            model_params, val_metrics, test_metrics, model = run_nbeats(train_raw, val, test, target_col, params)
 
         mlflow.log_params(model_params)
         mlflow.log_params({
