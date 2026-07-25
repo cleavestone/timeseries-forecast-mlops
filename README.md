@@ -1,3 +1,4 @@
+
 # Time Series Forecasting MLOps Platform
 
 An end-to-end, production-style ML system for retail demand forecasting — built as a
@@ -109,6 +110,40 @@ prediction service → predictions logged to Postgres → Prometheus/Grafana mon
 
 ## Tech Stack
 
-| Concern  | Tool                               |
-| -------- | ---------------------------------- |
-| Modeling | LightGBM, N-BEATS (neuralforecast) |
+| Concern                        | Tool                                       |
+| ------------------------------ | ------------------------------------------ |
+| Modeling                       | LightGBM, N-BEATS (neuralforecast)         |
+| Hyperparameter tuning          | Optuna                                     |
+| Experiment tracking & registry | MLflow (Postgres backend, MinIO artifacts) |
+| Data versioning                | DVC (MinIO remote)                         |
+| Orchestration                  | Kestra                                     |
+| Serving                        | FastAPI (batch prediction)                 |
+| Storage                        | PostgreSQL                                 |
+| Drift detection                | Evidently AI                               |
+| Metrics & dashboards           | Prometheus + Grafana                       |
+| CI/CD                          | GitHub Actions                             |
+| Package management             | uv                                         |
+| Infrastructure                 | Docker + Docker Compose                    |
+
+## Roadmap
+
+- [X] Data ingestion, EDA, time-respecting train/val/test split
+- [X] Feature engineering pipeline (shared between training and inference)
+- [X] Baseline model (seasonal naive)
+- [X] LightGBM model + MLflow tracking
+- [X] Optuna hyperparameter tuning
+- [X] Global deep learning model (N-BEATS) comparison
+- [X] Model registry promotion workflow
+- [ ] FastAPI batch prediction service
+- [ ] Prometheus + Grafana monitoring
+- [ ] Evidently drift detection
+- [ ] Kestra flows: scheduled inference, drift checks, conditional retraining
+- [ ] GitHub Actions CI/CD with metric-gated releases
+- [ ] Final documentation, architecture diagram, demo
+
+## Why This Project
+
+Built to demonstrate the gap between "training a model in a notebook" and "operating
+a model in production" — the modeling is intentionally straightforward so that the
+engineering around it (versioning, tracking, serving, monitoring, and the feedback
+loop between them) can be the real focus.
