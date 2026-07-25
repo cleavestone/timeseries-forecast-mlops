@@ -3,4 +3,32 @@ name = "timeseries-mlops"
 version = "0.1.0"
 description = "Add your description here"
 requires-python = ">=3.12"
-dependencies = []
+dependencies = [
+    "fastapi>=0.139.2",
+    "lightgbm>=4.7.0",
+    "mlflow>=3.14.0",
+    "numpy>=2.5.1",
+    "pandas>=2.3.3",
+    "prometheus-fastapi-instrumentator>=8.0.2",
+    "psycopg2-binary>=2.9.12",
+    "pydantic>=2.13.4",
+    "python-dotenv>=1.2.2",
+    "sqlalchemy>=2.0.51",
+    "uvicorn>=0.51.0",
+]
+
+[dependency-groups]
+dev = [
+    "httpx>=0.28.1",
+    "pytest>=9.1.1",
+    "pytest-asyncio>=1.4.0",
+    "ruff>=0.16.0",
+]
+train = [
+    "dvc[s3]>=3.67.1",
+    "evidently>=0.7.21",
+    "neuralforecast>=3.2.0",
+    "optuna>=4.9.0",
+    "pmdarima>=2.1.1",
+    "statsmodels>=0.14.6",
+]
