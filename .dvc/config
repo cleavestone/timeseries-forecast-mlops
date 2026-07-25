@@ -1,0 +1,5 @@
+[core]
+    remote = minio_remote
+['remote "minio_remote"']
+    url = s3://dvc-store
+    endpointurl = http://localhost:9000
