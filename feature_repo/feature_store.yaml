@@ -1,0 +1,28 @@
+project: rossmann_forecasting
+provider: local
+
+registry:
+  registry_type: sql
+  path: postgresql+psycopg://mlflow:mlflow123@localhost:5432/feast_store
+
+offline_store:
+  type: postgres
+  host: localhost
+  port: 5432
+  database: feast_store
+  db_schema: public
+  user: mlflow
+  password: mlflow123
+  sslmode: disable
+
+online_store:
+  type: postgres
+  host: localhost
+  port: 5432
+  database: feast_store
+  db_schema: public
+  user: mlflow
+  password: mlflow123
+  sslmode: disable
+
+entity_key_serialization_version: 3
